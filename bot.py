@@ -101,10 +101,7 @@ def passenger_actions_kb(order_id):
 
 def driver_actions_kb(order_id):
     kb = VkKeyboard(one_time=False, inline=True)
-    kb.add_butto
-
-
-n("❌ Отказаться от заказа", color=VkKeyboardColor.NEGATIVE, payload={"type": "driver_cancel", "order_id": order_id})
+    kb.add_button("❌ Отказаться от заказа", color=VkKeyboardColor.NEGATIVE, payload={"type": "driver_cancel", "order_id": order_id})
     kb.add_line()
     kb.add_button("📩 Пожаловаться", color=VkKeyboardColor.PRIMARY, payload={"type": "complaint", "order_id": order_id})
     return kb.get_keyboard()
@@ -189,10 +186,7 @@ def handle_message(user_id, text, payload):
                 elif cur_drv == user_id:
                     send_msg(user_id, "Вы уже взяли этот заказ.")
                 else:
-                    send_msg(
-
-
-user_id, f"❌ Заказ №{oid} уже забрал другой водитель!")
+                    send_msg(user_id, f"❌ Заказ №{oid} уже забрал другой водитель!")
             conn.close()
             return
 
@@ -282,10 +276,7 @@ user_id, f"❌ Заказ №{oid} уже забрал другой водите
 
     if step == 'get_from':
         if text == "✍️ Другой город":
-            cursor.execute("UPDATE passengers SET step='get_from_man
-
-
-ual' WHERE user_id=?", (user_id,))
+            cursor.execute("UPDATE passengers SET step='get_from_manual' WHERE user_id=?", (user_id,))
             conn.commit()
             send_msg(user_id, "Напишите название города:", keyboard=None)
             conn.close()
@@ -365,10 +356,7 @@ ual' WHERE user_id=?", (user_id,))
 
     elif step == 'get_time':
         if not re.match(r'^\d{1,2}[:.\s]\d{2}$', text.strip()):
-            send_msg(user_id, "❌ Пожалуйста, введите время в формате
-
-
-ЧЧ:ММ (например: 09:00):", keyboard=None)
+            send_msg(user_id, "❌ Пожалуйста, введите время в формате ЧЧ:ММ (например: 09:00):", keyboard=None)
             conn.close()
             return
         cursor.execute("UPDATE passengers SET time=?, step='get_phone' WHERE user_id=?", (text, user_id))
@@ -449,10 +437,7 @@ ual' WHERE user_id=?", (user_id,))
         send_msg(user_id, "Что везём? (Напишите кратко: документы, запчасти, гостинцы и т.д.):", keyboard=None)
 
     elif step == 'pkg_desc':
-        cursor.execute("UPDATE pass
-
-
-engers SET seats=?, step='pkg_date' WHERE user_id=?", (text, user_id))
+        cursor.execute("UPDATE passengers SET seats=?, step='pkg_date' WHERE user_id=?", (text, user_id))
         conn.commit()
         send_msg(user_id, "КОГДА ОТПРАВИТЬ?\nНапишите дату (например: 12.11.2026):", keyboard=None)
 
