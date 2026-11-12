@@ -16,7 +16,7 @@ vk = vk_session.get_api()
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 
 CITIES_KB = ["Сибай", "Уфа", "Оренбург", "Стерлитамак"]
-EXTRA_CITIES = ["Баймак", "Белорецк", "Кумертау", "Мелеуз", "Ишимбай", "Салават", "Исянгулово"]
+EXTRA_CITIES = ["Баймак", "Белорецк", "Кумертау", "Мелеуз", "Ишимбай", "Салават", "Исянгулово", "Акъяр"]
 ALL_CITIES = CITIES_KB + EXTRA_CITIES
 
 CITIES_STR = ", ".join(ALL_CITIES)
