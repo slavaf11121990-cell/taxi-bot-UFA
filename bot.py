@@ -8,16 +8,21 @@ from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 TOKEN = os.environ.get('VK_TOKEN')
-GROUP_ID = 243206503 # ID группы Уфа
+GROUP_ID = 243206503  # ID группы Уфа
 ADMIN_ID = 572959468
 
 vk_session = VkApi(token=TOKEN)
 vk = vk_session.get_api()
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 
-# ВСЕ ГОРОДА КНОПКАМИ
-CITIES = ["Сибай", "Уфа", "Оренбург", "Стерлитамак", "Баймак", 
-          "Белорецк", "Кумертау", "Мелеуз", "Ишимбай", "Салават", "Исянгулово"]
+# Города, которые будут КНОПКАМИ (не более 4-5, чтобы не сломать клавиатуру)
+CITIES_KB = ["Сибай", "Уфа", "Оренбург", "Стерлитамак"]
+
+# Остальные города (можно ввести вручную)
+EXTRA_CITIES = ["Баймак", "Белорецк", "Кумертау", "Мелеуз", "Ишимбай", "Салават", "Исянгулово"]
+
+# Общий список для проверки ввода
+ALL_CITIES = CITIES_KB + EXTRA_CITIES
 
 SEATS = ["1 человек", "2 человека", "3 человека", "4 человека",
          "5 человек", "6 человек", "7 человек", "8 человек",
@@ -56,11 +61,12 @@ def main_kb():
 
 def cities_kb():
     kb = VkKeyboard(one_time=False, inline=True)
-    # Раскладываем города по 2 в ряд
-    for i, city in enumerate(CITIES):
+    for i, city in enumerate(CITIES_KB):
         kb.add_button(city, color=VkKeyboardColor.SECONDARY)
-        if i % 2 != 0 and i != len(CITIES) - 1:
+        if (i + 1) % 2 == 0 and i != len(CITIES_KB) - 1:
             kb.add_line()
+    kb.add_line()
+    kb.add_button("✍️ Другой город", color=VkKeyboardColor.PRIMARY)
     return kb.get_keyboard()
 
 def seats_kb():
@@ -95,7 +101,10 @@ def passenger_actions_kb(order_id):
 
 def driver_actions_kb(order_id):
     kb = VkKeyboard(one_time=False, inline=True)
-    kb.add_button("❌ Отказаться от заказа", color=VkKeyboardColor.NEGATIVE, payload={"type": "driver_cancel", "order_id": order_id})
+    kb.add_butto
+
+
+n("❌ Отказаться от заказа", color=VkKeyboardColor.NEGATIVE, payload={"type": "driver_cancel", "order_id": order_id})
     kb.add_line()
     kb.add_button("📩 Пожаловаться", color=VkKeyboardColor.PRIMARY, payload={"type": "complaint", "order_id": order_id})
     return kb.get_keyboard()
@@ -107,6 +116,13 @@ def take_order_kb(order_id):
 
 def send_msg(user_id, text, keyboard=None):
     vk.messages.send(user_id=user_id, message=text, random_id=get_random_id(), keyboard=keyboard)
+
+def normalize_city(text):
+    t = text.strip().lower()
+    for city in ALL_CITIES:
+        if city.lower() == t:
+            return city
+    return None
 
 def broadcast_order(cursor, order_id):
     cursor.execute("SELECT order_type, point_from, point_to, seats, day, time FROM orders WHERE order_id = ?", (order_id,))
@@ -173,7 +189,10 @@ def handle_message(user_id, text, payload):
                 elif cur_drv == user_id:
                     send_msg(user_id, "Вы уже взяли этот заказ.")
                 else:
-                    send_msg(user_id, f"❌ Заказ №{oid} уже забрал другой водитель!")
+                    send_msg(
+
+
+user_id, f"❌ Заказ №{oid} уже забрал другой водитель!")
             conn.close()
             return
 
@@ -262,7 +281,16 @@ def handle_message(user_id, text, payload):
         return
 
     if step == 'get_from':
-        if text not in CITIES:
+        if text == "✍️ Другой город":
+            cursor.execute("UPDATE passengers SET step='get_from_man
+
+
+ual' WHERE user_id=?", (user_id,))
+            conn.commit()
+            send_msg(user_id, "Напишите название города:", keyboard=None)
+            conn.close()
+            return
+        if text not in CITIES_KB:
             send_msg(user_id, "Пожалуйста, выберите город из кнопок:", cities_kb())
             conn.close()
             return
@@ -270,8 +298,24 @@ def handle_message(user_id, text, payload):
         conn.commit()
         send_msg(user_id, "Куда вы едете?", cities_kb())
 
+    elif step == 'get_from_manual':
+        city = normalize_city(text)
+        if not city:
+            send_msg(user_id, "❌ Такого города нет. Напишите ещё раз или нажмите «Привет» для меню:", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("UPDATE passengers SET point_from=?, step='get_to' WHERE user_id=?", (city, user_id))
+        conn.commit()
+        send_msg(user_id, "Куда вы едете?", cities_kb())
+
     elif step == 'get_to':
-        if text not in CITIES:
+        if text == "✍️ Другой город":
+            cursor.execute("UPDATE passengers SET step='get_to_manual' WHERE user_id=?", (user_id,))
+            conn.commit()
+            send_msg(user_id, "Напишите название города:", keyboard=None)
+            conn.close()
+            return
+        if text not in CITIES_KB:
             send_msg(user_id, "Пожалуйста, выберите город из кнопок:", cities_kb())
             conn.close()
             return
@@ -282,6 +326,22 @@ def handle_message(user_id, text, payload):
             conn.close()
             return
         cursor.execute("UPDATE passengers SET point_to=?, step='get_seats' WHERE user_id=?", (text, user_id))
+        conn.commit()
+        send_msg(user_id, "Сколько вас поедет?\nЕсли хотите заказать машину целиком — нажмите «Легковое такси» или «Минивэн».", seats_kb())
+
+    elif step == 'get_to_manual':
+        city = normalize_city(text)
+        if not city:
+            send_msg(user_id, "❌ Такого города нет. Напишите ещё раз или нажмите «Привет» для меню:", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("SELECT point_from FROM passengers WHERE user_id=?", (user_id,))
+        from_city = cursor.fetchone()[0]
+        if city == from_city:
+            send_msg(user_id, f"❌ Откуда и куда не могут совпадать. Вы уже едете из «{from_city}».", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("UPDATE passengers SET point_to=?, step='get_seats' WHERE user_id=?", (city, user_id))
         conn.commit()
         send_msg(user_id, "Сколько вас поедет?\nЕсли хотите заказать машину целиком — нажмите «Легковое такси» или «Минивэн».", seats_kb())
 
@@ -305,7 +365,10 @@ def handle_message(user_id, text, payload):
 
     elif step == 'get_time':
         if not re.match(r'^\d{1,2}[:.\s]\d{2}$', text.strip()):
-            send_msg(user_id, "❌ Пожалуйста, введите время в формате ЧЧ:ММ (например: 09:00):", keyboard=None)
+            send_msg(user_id, "❌ Пожалуйста, введите время в формате
+
+
+ЧЧ:ММ (например: 09:00):", keyboard=None)
             conn.close()
             return
         cursor.execute("UPDATE passengers SET time=?, step='get_phone' WHERE user_id=?", (text, user_id))
@@ -336,7 +399,13 @@ def handle_message(user_id, text, payload):
         conn.commit()
 
     elif step == 'pkg_from':
-        if text not in CITIES:
+        if text == "✍️ Другой город":
+            cursor.execute("UPDATE passengers SET step='pkg_from_manual' WHERE user_id=?", (user_id,))
+            conn.commit()
+            send_msg(user_id, "Напишите название города:", keyboard=None)
+            conn.close()
+            return
+        if text not in CITIES_KB:
             send_msg(user_id, "Пожалуйста, выберите город из кнопок:", cities_kb())
             conn.close()
             return
@@ -344,8 +413,24 @@ def handle_message(user_id, text, payload):
         conn.commit()
         send_msg(user_id, "Куда отправить посылку?", cities_kb())
 
+    elif step == 'pkg_from_manual':
+        city = normalize_city(text)
+        if not city:
+            send_msg(user_id, "❌ Такого города нет. Напишите ещё раз:", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("UPDATE passengers SET point_from=?, step='pkg_to' WHERE user_id=?", (city, user_id))
+        conn.commit()
+        send_msg(user_id, "Куда отправить посылку?", cities_kb())
+
     elif step == 'pkg_to':
-        if text not in CITIES:
+        if text == "✍️ Другой город":
+            cursor.execute("UPDATE passengers SET step='pkg_to_manual' WHERE user_id=?", (user_id,))
+            conn.commit()
+            send_msg(user_id, "Напишите название города:", keyboard=None)
+            conn.close()
+            return
+        if text not in CITIES_KB:
             send_msg(user_id, "Пожалуйста, выберите город из кнопок:", cities_kb())
             conn.close()
             return
@@ -353,8 +438,21 @@ def handle_message(user_id, text, payload):
         conn.commit()
         send_msg(user_id, "Что везём? (Напишите кратко: документы, запчасти, гостинцы и т.д.):", keyboard=None)
 
+    elif step == 'pkg_to_manual':
+        city = normalize_city(text)
+        if not city:
+            send_msg(user_id, "❌ Такого города нет. Напишите ещё раз:", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("UPDATE passengers SET point_to=?, step='pkg_desc' WHERE user_id=?", (city, user_id))
+        conn.commit()
+        send_msg(user_id, "Что везём? (Напишите кратко: документы, запчасти, гостинцы и т.д.):", keyboard=None)
+
     elif step == 'pkg_desc':
-        cursor.execute("UPDATE passengers SET seats=?, step='pkg_date' WHERE user_id=?", (text, user_id))
+        cursor.execute("UPDATE pass
+
+
+engers SET seats=?, step='pkg_date' WHERE user_id=?", (text, user_id))
         conn.commit()
         send_msg(user_id, "КОГДА ОТПРАВИТЬ?\nНапишите дату (например: 12.11.2026):", keyboard=None)
 
