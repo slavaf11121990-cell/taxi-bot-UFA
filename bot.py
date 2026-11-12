@@ -117,13 +117,22 @@ def normalize_city(text):
     return None
 
 def is_valid_date(text):
-    match = re.match(r'^(\d{2})[\.\s\/]?(\d{2})[\.\s\/]?(\d{2,4})$', text.strip())
+    # Разрешаем точки и пробелы
+    clean_text = text.replace(" ", ".")
+    match = re.match(r'^(\d{2})\.(\d{2})\.(\d{2,4})$', clean_text)
     if not match:
         return False
-    day, month, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
-    if not (1 <= day <= 31 and 1 <= month <= 12):
+    day, month = int(match.group(1)), int(match.group(2))
+    return 1 <= day <= 31 and 1 <= month <= 12
+
+def is_valid_time(text):
+    # Разрешаем двоеточие, точку и пробел
+    clean_text = text.replace(".", ":").replace(" ", ":")
+    match = re.match(r'^(\d{1,2}):(\d{2})$', clean_text)
+    if not match:
         return False
-    return True
+    hours, minutes = int(match.group(1)), int(match.group(2))
+    return 0 <= hours <= 23 and 0 <= minutes <= 59
 
 def broadcast_order(cursor, order_id):
     cursor.execute("SELECT order_type, point_from, point_to, seats, day, time FROM orders WHERE order_id = ?", (order_id,))
@@ -351,7 +360,7 @@ def handle_message(user_id, text, payload):
             return
         cursor.execute("UPDATE passengers SET seats=?, step='get_day' WHERE user_id=?", (text, user_id))
         conn.commit()
-        send_msg(user_id, "КОГДА ВЫ ХОТИТЕ ПОЕХАТЬ?\nНапишите дату (например: 12.11.2026 или 12.11.26):", keyboard=None)
+        send_msg(user_id, "КОГДА ВЫ ХОТИТЕ ПОЕХАТЬ?\nНапишите дату (например: 12.11.2026 или 12 11 2026):", keyboard=None)
 
     elif step == 'get_day':
         if not is_valid_date(text):
@@ -363,8 +372,8 @@ def handle_message(user_id, text, payload):
         send_msg(user_id, "ВО СКОЛЬКО?\nНапишите время (например: 09:00, 9.00 или 9 00):", keyboard=None)
 
     elif step == 'get_time':
-        if not re.match(r'^\d{1,2}[:.\s]\d{2}$', text.strip()):
-            send_msg(user_id, "❌ Пожалуйста, введите время в формате ЧЧ:ММ (например: 09:00):", keyboard=None)
+        if not is_valid_time(text):
+            send_msg(user_id, "❌ Неверный формат или несуществующее время. Введите как ЧЧ:ММ (например: 09:00):", keyboard=None)
             conn.close()
             return
         cursor.execute("UPDATE passengers SET time=?, step='get_phone' WHERE user_id=?", (text, user_id))
@@ -459,8 +468,8 @@ def handle_message(user_id, text, payload):
         send_msg(user_id, "ВО СКОЛЬКО?\nНапишите время (например: 09:00):", keyboard=None)
 
     elif step == 'pkg_time':
-        if not re.match(r'^\d{1,2}[:.\s]\d{2}$', text.strip()):
-            send_msg(user_id, "❌ Пожалуйста, введите время в формате ЧЧ:ММ (например: 09:00):", keyboard=None)
+        if not is_valid_time(text):
+            send_msg(user_id, "❌ Неверный формат или несуществующее время. Введите как ЧЧ:ММ (например: 09:00):", keyboard=None)
             conn.close()
             return
         cursor.execute("UPDATE passengers SET time=?, step='pkg_phone' WHERE user_id=?", (text, user_id))
