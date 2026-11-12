@@ -8,15 +8,20 @@ from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 TOKEN = os.environ.get('VK_TOKEN')
-GROUP_ID = 243206503
+GROUP_ID = 243206503 # ID группы Уфа
 ADMIN_ID = 572959468
 
 vk_session = VkApi(token=TOKEN)
 vk = vk_session.get_api()
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 
-# НОВЫЕ ГОРОДА ДЛЯ УФЫ
-CITIES = ["Сибай", "Уфа", "Баймак"]
+# Основные города (кнопки)
+CITIES = ["Сибай", "Уфа", "Баймак", "Оренбург", "Стерлитамак"]
+# Дополнительные города (для ручного ввода)
+EXTRA_CITIES = ["Кумертау", "Мелеуз", "Белорецк", "Сингуль", "Салават", "Ишимбай"]
+# Все города вместе
+ALL_CITIES = CITIES + EXTRA_CITIES
+
 SEATS = ["1 человек", "2 человека", "3 человека", "4 человека",
          "5 человек", "6 человек", "7 человек", "8 человек",
          "Легковое такси", "Минивэн"]
@@ -58,6 +63,10 @@ def cities_kb():
     kb.add_button("Уфа", color=VkKeyboardColor.SECONDARY)
     kb.add_line()
     kb.add_button("Баймак", color=VkKeyboardColor.SECONDARY)
+    kb.add_button("Оренбург", color=VkKeyboardColor.SECONDARY)
+    kb.add_line()
+    kb.add_button("Стерлитамак", color=VkKeyboardColor.SECONDARY)
+    kb.add_button("Другой город", color=VkKeyboardColor.PRIMARY)
     return kb.get_keyboard()
 
 def seats_kb():
@@ -104,6 +113,13 @@ def take_order_kb(order_id):
 
 def send_msg(user_id, text, keyboard=None):
     vk.messages.send(user_id=user_id, message=text, random_id=get_random_id(), keyboard=keyboard)
+
+def normalize_city(text):
+    t = text.strip().lower()
+    for city in ALL_CITIES:
+        if city.lower() == t:
+            return city
+    return None
 
 def broadcast_order(cursor, order_id):
     cursor.execute("SELECT order_type, point_from, point_to, seats, day, time FROM orders WHERE order_id = ?", (order_id,))
@@ -259,6 +275,12 @@ def handle_message(user_id, text, payload):
         return
 
     if step == 'get_from':
+        if text == "Другой город":
+            cursor.execute("UPDATE passengers SET step='get_from_manual' WHERE user_id=?", (user_id,))
+            conn.commit()
+            send_msg(user_id, "Напишите название города:", keyboard=None)
+            conn.close()
+            return
         if text not in CITIES:
             send_msg(user_id, "Пожалуйста, выберите город из кнопок:", cities_kb())
             conn.close()
@@ -267,7 +289,23 @@ def handle_message(user_id, text, payload):
         conn.commit()
         send_msg(user_id, "Куда вы едете?", cities_kb())
 
+    elif step == 'get_from_manual':
+        city = normalize_city(text)
+        if not city:
+            send_msg(user_id, "❌ Такого города нет. Напишите ещё раз или выберите из кнопок:", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("UPDATE passengers SET point_from=?, step='get_to' WHERE user_id=?", (city, user_id))
+        conn.commit()
+        send_msg(user_id, "Куда вы едете?", cities_kb())
+
     elif step == 'get_to':
+        if text == "Другой город":
+            cursor.execute("UPDATE passengers SET step='get_to_manual' WHERE user_id=?", (user_id,))
+            conn.commit()
+            send_msg(user_id, "Напишите название города:", keyboard=None)
+            conn.close()
+            return
         if text not in CITIES:
             send_msg(user_id, "Пожалуйста, выберите город из кнопок:", cities_kb())
             conn.close()
@@ -279,6 +317,22 @@ def handle_message(user_id, text, payload):
             conn.close()
             return
         cursor.execute("UPDATE passengers SET point_to=?, step='get_seats' WHERE user_id=?", (text, user_id))
+        conn.commit()
+        send_msg(user_id, "Сколько вас поедет?\nЕсли хотите заказать машину целиком — нажмите «Легковое такси» или «Минивэн».", seats_kb())
+
+    elif step == 'get_to_manual':
+        city = normalize_city(text)
+        if not city:
+            send_msg(user_id, "❌ Такого города нет. Напишите ещё раз или выберите из кнопок:", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("SELECT point_from FROM passengers WHERE user_id=?", (user_id,))
+        from_city = cursor.fetchone()[0]
+        if city == from_city:
+            send_msg(user_id, f"❌ Откуда и куда не могут совпадать. Вы уже едете из «{from_city}».", keyboard=None)
+            conn.close()
+            return
+        cursor.execute("UPDATE passengers SET point_to=?, step='get_seats' WHERE user_id=?", (city, user_id))
         conn.commit()
         send_msg(user_id, "Сколько вас поедет?\nЕсли хотите заказать машину целиком — нажмите «Легковое такси» или «Минивэн».", seats_kb())
 
@@ -376,43 +430,4 @@ def handle_message(user_id, text, payload):
     elif step == 'pkg_phone':
         if not re.match(r'^(\+7|7|8)\d{10}$', text.replace(" ", "").replace("-", "")):
             send_msg(user_id, "❌ Неверный формат. Введите номер: +7XXXXXXXXXX или 8XXXXXXXXXX", keyboard=None)
-            conn.close()
-            return
-        cursor.execute("UPDATE passengers SET phone=?, step='pkg_confirm' WHERE user_id=?", (text, user_id))
-        conn.commit()
-        send_msg(user_id, f"Ваш номер: {text}\nВсё верно?", confirm_kb())
-
-    elif step == 'pkg_confirm' and text == "✅ НОМЕР ВЕРНЫЙ":
-        cursor.execute("SELECT point_from, point_to, seats, day, time, phone FROM passengers WHERE user_id=?", (user_id,))
-        p = cursor.fetchone()
-        if p:
-            p_from, p_to, p_desc, p_day, p_time, p_phone = p
-            cursor.execute("INSERT INTO orders (passenger_id, order_type, point_from, point_to, seats, day, time, phone, status) VALUES (?,?,?,?,?,?,?,?,'active')",
-                           (user_id, 'package', p_from, p_to, p_desc, p_day, p_time, p_phone))
-            oid = cursor.lastrowid
-            conn.commit()
-            send_msg(user_id, "🎉 Заявка на посылку отправлена водителям!", main_kb())
-            broadcast_order(cursor, oid)
-        cursor.execute("UPDATE passengers SET step='main_menu' WHERE user_id=?", (user_id,))
-        conn.commit()
-
-    elif step == 'complaint':
-        send_msg(ADMIN_ID, f"📩 ЖАЛОБА от {user_id}:\n\n{text}")
-        send_msg(user_id, "✅ Спасибо! Жалоба отправлена администратору.", main_kb())
-        cursor.execute("UPDATE passengers SET step='main_menu' WHERE user_id=?", (user_id,))
-        conn.commit()
-
-    conn.close()
-
-if __name__ == "__main__":
-    for event in longpoll.listen():
-        if event.type == VkBotEventType.MESSAGE_NEW:
-            u_id = event.obj.message['from_id']
-            txt = event.obj.message['text']
-            p_load = event.obj.message.get('payload')
-            if p_load and isinstance(p_load, str):
-                try:
-                    p_load = json.loads(p_load)
-                except:
-                    p_load = None
-            handle_message(u_id, txt, p_load)
+            con
