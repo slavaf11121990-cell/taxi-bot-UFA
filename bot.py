@@ -8,7 +8,7 @@ from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 TOKEN = os.environ.get('VK_TOKEN')
-GROUP_ID = https://vk.ru/club243206503
+GROUP_ID = 243206503
 ADMIN_ID = 572959468
 
 vk_session = VkApi(token=TOKEN)
