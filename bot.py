@@ -15,12 +15,8 @@ vk_session = VkApi(token=TOKEN)
 vk = vk_session.get_api()
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 
-# Города, которые будут КНОПКАМИ (4 штуки)
 CITIES_KB = ["Сибай", "Уфа", "Оренбург", "Стерлитамак"]
-
-# Остальные города (можно ввести вручную)
 EXTRA_CITIES = ["Баймак", "Белорецк", "Кумертау", "Мелеуз", "Ишимбай", "Салават", "Исянгулово"]
-
 ALL_CITIES = CITIES_KB + EXTRA_CITIES
 
 SEATS = ["1 человек", "2 человека", "3 человека", "4 человека",
@@ -120,6 +116,15 @@ def normalize_city(text):
             return city
     return None
 
+def is_valid_date(text):
+    match = re.match(r'^(\d{2})[\.\s\/]?(\d{2})[\.\s\/]?(\d{2,4})$', text.strip())
+    if not match:
+        return False
+    day, month, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    if not (1 <= day <= 31 and 1 <= month <= 12):
+        return False
+    return True
+
 def broadcast_order(cursor, order_id):
     cursor.execute("SELECT order_type, point_from, point_to, seats, day, time FROM orders WHERE order_id = ?", (order_id,))
     o = cursor.fetchone()
@@ -130,12 +135,16 @@ def broadcast_order(cursor, order_id):
     if o_type == 'package':
         order_text = (f"📦 НОВАЯ ПОСЫЛКА №{order_id}!\n\n"
                       f"📍 Откуда: {p_from}\n🎯 Куда: {p_to}\n"
-                      f"📦 Что везём: {p_seats}\n📅 Когда: {p_day} {p_time}\n\n"
+                      f"📦 Что везём: {p_seats}\n"
+                      f"📅 Дата: {p_day}\n"
+                      f"🕐 Время: {p_time}\n\n"
                       f"⚠️ Номер телефона будет доступен после нажатия кнопки!")
     else:
         order_text = (f"📢 НОВЫЙ ЗАКАЗ №{order_id}!\n\n"
                       f"📍 Откуда: {p_from}\n🎯 Куда: {p_to}\n"
-                      f"👥 Детали: {p_seats}\n📅 Когда: {p_day} {p_time}\n\n"
+                      f"👥 Детали: {p_seats}\n"
+                      f"📅 Дата: {p_day}\n"
+                      f"🕐 Время: {p_time}\n\n"
                       f"⚠️ Номер телефона будет доступен после нажатия кнопки!")
                       
     cursor.execute("SELECT user_id FROM drivers")
@@ -345,8 +354,8 @@ def handle_message(user_id, text, payload):
         send_msg(user_id, "КОГДА ВЫ ХОТИТЕ ПОЕХАТЬ?\nНапишите дату (например: 12.11.2026 или 12.11.26):", keyboard=None)
 
     elif step == 'get_day':
-        if not re.match(r'^\d{2}[\.\s\/]?\d{2}[\.\s\/]?\d{2,4}$', text.strip()):
-            send_msg(user_id, "❌ Пожалуйста, введите дату в формате ДД.ММ.ГГГГ (например: 12.11.2026):", keyboard=None)
+        if not is_valid_date(text):
+            send_msg(user_id, "❌ Неверный формат или несуществующая дата. Введите как ДД.ММ.ГГГГ (например: 12.11.2026):", keyboard=None)
             conn.close()
             return
         cursor.execute("UPDATE passengers SET day=?, step='get_time' WHERE user_id=?", (text, user_id))
@@ -441,8 +450,8 @@ def handle_message(user_id, text, payload):
         send_msg(user_id, "КОГДА ОТПРАВИТЬ?\nНапишите дату (например: 12.11.2026):", keyboard=None)
 
     elif step == 'pkg_date':
-        if not re.match(r'^\d{2}[\.\s\/]?\d{2}[\.\s\/]?\d{2,4}$', text.strip()):
-            send_msg(user_id, "❌ Пожалуйста, введите дату в формате ДД.ММ.ГГГГ (например: 12.11.2026):", keyboard=None)
+        if not is_valid_date(text):
+            send_msg(user_id, "❌ Неверный формат или несуществующая дата. Введите как ДД.ММ.ГГГГ (например: 12.11.2026):", keyboard=None)
             conn.close()
             return
         cursor.execute("UPDATE passengers SET day=?, step='pkg_time' WHERE user_id=?", (text, user_id))
